@@ -282,6 +282,7 @@
             const [category, setCategory] = useState(null);
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [formData, setFormData] = useState({ shop: '', price: '', amount: '', inputType: 'tax_excluded' });
+            const [editingPriceId, setEditingPriceId] = useState(null);
 
             const loadData = async () => {
                 if (!item) return;
@@ -310,15 +311,30 @@
             // Calculate cheapest unit price (Always compare with Inclusive Price)
             const minUnitPriceInTax = useMemo(() => {
                 if (prices.length === 0 || !category) return Infinity;
-                // Use stored unitPriceInTax if available, otherwise calculate fallback
                 return Math.min(...prices.map(p => {
                     if (p.unitPriceInTax) return p.unitPriceInTax;
-                    // Fallback for old data: assume tax_excluded and use current category tax rate
                     const inputType = p.inputType || 'tax_excluded';
-                    const rawUnitPrice = p.unitPrice; // This is raw input unit price
+                    const rawUnitPrice = p.unitPrice;
                     return calculateInclusivePrice(rawUnitPrice, inputType, category.taxRate || 0.08);
                 }));
             }, [prices, category]);
+
+            const openAddModal = () => {
+                setEditingPriceId(null);
+                setFormData({ shop: '', price: '', amount: '', inputType: 'tax_excluded' });
+                setIsModalOpen(true);
+            };
+
+            const openEditModal = (price) => {
+                setEditingPriceId(price.id);
+                setFormData({
+                    shop: price.shop,
+                    price: price.price,
+                    amount: price.amount || '',
+                    inputType: price.inputType || 'tax_excluded'
+                });
+                setIsModalOpen(true);
+            };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
@@ -331,18 +347,31 @@
                 // Calculate Unit Price In Tax for sorting/ranking
                 const unitPriceInTax = calculateInclusivePrice(unitPrice, formData.inputType, category.taxRate);
 
-                await db.prices.add({
-                    itemId: item.id,
-                    shop: formData.shop,
-                    price: price,
-                    amount: formData.amount ? parseFloat(formData.amount) : null,
-                    unitPrice: unitPrice,
-                    unitPriceInTax: unitPriceInTax,
-                    inputType: formData.inputType,
-                    date: new Date().toISOString()
-                });
+                if (editingPriceId) {
+                    await db.prices.update(editingPriceId, {
+                        shop: formData.shop,
+                        price: price,
+                        amount: formData.amount ? parseFloat(formData.amount) : null,
+                        unitPrice: unitPrice,
+                        unitPriceInTax: unitPriceInTax,
+                        inputType: formData.inputType,
+                        date: new Date().toISOString()
+                    });
+                } else {
+                    await db.prices.add({
+                        itemId: item.id,
+                        shop: formData.shop,
+                        price: price,
+                        amount: formData.amount ? parseFloat(formData.amount) : null,
+                        unitPrice: unitPrice,
+                        unitPriceInTax: unitPriceInTax,
+                        inputType: formData.inputType,
+                        date: new Date().toISOString()
+                    });
+                }
 
                 setFormData({ shop: '', price: '', amount: '', inputType: 'tax_excluded' });
+                setEditingPriceId(null);
                 setIsModalOpen(false);
                 loadData();
             };
@@ -368,7 +397,7 @@
                             <h2 className="text-2xl font-bold text-text truncate">{item.name}</h2>
                         </div>
                         <button
-                            onClick={() => setIsModalOpen(true)}
+                            onClick={openAddModal}
                             className="mb-1 p-2.5 bg-main text-white rounded-2xl shadow-md hover:bg-main-dark transition-all active:scale-95 flex items-center justify-center"
                         >
                             <IconPlus className="w-6 h-6" />
@@ -407,7 +436,7 @@
                                     const isCheapest = Math.abs(myUnitPriceInTax - minUnitPriceInTax) < 0.001;
 
                                     return (
-                                        <Card key={price.id} className="relative overflow-hidden group">
+                                        <Card key={price.id} className="relative overflow-hidden group active:scale-[0.98] transition-all cursor-pointer" onClick={() => openEditModal(price)}>
                                             {/* Cheapest Badge */}
                                             {isCheapest && (
                                                 <div className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl ">
@@ -420,7 +449,10 @@
 
                                             <div className="flex justify-between items-start mb-2 pr-6">
                                                 <div>
-                                                    <div className="text-lg font-bold text-text">{price.shop}</div>
+                                                    <div className="text-lg font-bold text-text flex items-center gap-2">
+                                                        {price.shop}
+                                                        <IconPencil className="w-3 h-3 text-text-light/30" />
+                                                    </div>
                                                     <div className="text-xs text-text-light">{formatDate(price.date)}</div>
                                                 </div>
                                                 <div className="text-right">
@@ -428,9 +460,8 @@
                                                         {formatPrice(displayPriceVal)}
                                                     </div>
                                                     {price.amount && (
-                                                        <div className="text-xs text-text-light">
-                                                            {price.amount} {price.amount < 10 ? '個' : 'g/ml'} あたり
-                                                            <span className="ml-1 font-medium text-text">@{displayUnitPriceVal.toFixed(1)}</span>
+                                                        <div className="text-xs text-text-light mt-0.5">
+                                                            {price.amount}個/枚入 <span className="font-bold text-text ml-1">@{displayUnitPriceVal.toFixed(1)}</span>
                                                         </div>
                                                     )}
                                                     <div className="text-[10px] text-text-light mt-0.5">
@@ -438,7 +469,7 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(price.id); }} className="absolute bottom-2 right-2 p-2 text-gray-300 hover:text-red-400 transition-colors">
+                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(price.id); }} className="absolute bottom-2 right-2 p-2 text-gray-300 hover:text-red-400 transition-colors z-10">
                                                 <IconTrash className="w-4 h-4" />
                                             </button>
                                         </Card>
@@ -449,7 +480,7 @@
                     </div>
 
                     {/* Modal */}
-                    <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="価格を登録">
+                    <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingPriceId ? "価格を編集" : "価格を登録"}>
                         <form onSubmit={handleSubmit}>
                             <Input
                                 label="お店の名前"
@@ -491,9 +522,9 @@
                             </div>
 
                             <Input
-                                label="内容量 (g / ml / 個) ※任意"
+                                label="内容量 (個/枚) ※任意"
                                 type="number"
-                                placeholder="100"
+                                placeholder="60"
                                 value={formData.amount}
                                 onChange={e => setFormData({ ...formData, amount: e.target.value })}
                             />
@@ -506,7 +537,7 @@
                                 </div>
                             )}
                             <div className="mt-6">
-                                <Button type="submit" className="w-full">保存する</Button>
+                                <Button type="submit" className="w-full">{editingPriceId ? '更新する' : '保存する'}</Button>
                             </div>
                         </form>
                     </Modal>
@@ -911,3 +942,7 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+    </script>
+</body>
+
+</html>
