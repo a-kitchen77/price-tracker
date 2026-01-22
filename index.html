@@ -357,26 +357,26 @@
             return (
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50">
-                        <div className="flex items-center gap-2 mb-2">
-                            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
-                                <IconChevronLeft />
-                            </button>
-                            <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">商品詳細</span>
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50 flex justify-between items-end gap-2">
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                                <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
+                                    <IconChevronLeft />
+                                </button>
+                                <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">商品詳細</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-text truncate">{item.name}</h2>
                         </div>
-                        <h2 className="text-2xl font-bold text-text truncate">{item.name}</h2>
+                        <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="mb-1 p-2.5 bg-main text-white rounded-2xl shadow-md hover:bg-main-dark transition-all active:scale-95 flex items-center justify-center"
+                        >
+                            <IconPlus className="w-6 h-6" />
+                        </button>
                     </div>
 
                     {/* Content */}
                     <div className="flex-1 overflow-y-auto px-4 py-6">
-                        {/* Add Button */}
-                        <Card className="mb-6 border-2 border-dashed border-border bg-transparent hover:bg-white flex flex-col items-center justify-center py-6 gap-2" onClick={() => setIsModalOpen(true)}>
-                            <div className="w-10 h-10 rounded-full bg-main-light text-main flex items-center justify-center">
-                                <IconPlus />
-                            </div>
-                            <span className="text-sm font-bold text-text-light">新しい価格を記録</span>
-                        </Card>
-
                         <div className="flex justify-between items-center mb-3 ml-1">
                             <h3 className="text-sm font-bold text-text-light flex items-center gap-2">
                                 <IconStore className="w-4 h-4" />
@@ -585,23 +585,27 @@
             return (
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50">
-                        <div className="flex items-center gap-2 mb-2">
-                            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
-                                <IconChevronLeft />
-                            </button>
-                            <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">カテゴリ</span>
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50 flex justify-between items-end gap-2">
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                                <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
+                                    <IconChevronLeft />
+                                </button>
+                                <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">カテゴリ</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-text truncate">{category.name}</h2>
                         </div>
-                        <h2 className="text-2xl font-bold text-text">{category.name}</h2>
+                        <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="mb-1 p-2.5 bg-main text-white rounded-2xl shadow-md hover:bg-main-dark transition-all active:scale-95 flex items-center justify-center"
+                        >
+                            <IconPlus className="w-6 h-6" />
+                        </button>
                     </div>
 
                     {/* Content */}
                     <div className="flex-1 overflow-y-auto px-4 py-6">
                         <div className="grid gap-3">
-                            <Button variant="secondary" className="mb-2 w-full border-dashed" onClick={() => setIsModalOpen(true)}>
-                                <IconPlus className="w-5 h-5" />
-                                商品を追加
-                            </Button>
 
                             {items.map(item => {
                                 const bestPrice = itemPrices[item.id];
