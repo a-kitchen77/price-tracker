@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Price Tracker ♡</title>
+
+    <!-- Icons -->
+    <link rel="icon" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
+
+    <!-- PWA Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Price Tracker">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        base: '#FAFAF9',      /* stone-50 */
+                        surface: '#FFFFFF',
+                        main: '#FDA4AF',      /* rose-300 */
+                        'main-light': '#FFF1F2', /* rose-50 */
+                        'main-dark': '#FB7185',  /* rose-400 */
+                        text: '#57534E',      /* stone-600 */
+                        'text-light': '#A8A29E', /* stone-400 */
+                        accent: '#FCD34D',    /* amber-300 */
+                        border: '#E7E5E4',    /* stone-200 */
+                    },
+                    fontFamily: {
+                        sans: ['"Hiragino Kaku Gothic ProN"', '"Noto Sans JP"', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px rgba(0, 0, 0, 0.03)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Dexie.js -->
+    <script src="https://unpkg.com/dexie@3/dist/dexie.min.js"></script>
+
+    <style>
+        body {
+            background-color: #FAFAF9;
+            color: #57534E;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // ==========================================
+        // Icons (SVG Components)
+        // ==========================================
+        const IconChevronLeft = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m15 18-6-6 6-6" /></svg>
+        );
+        const IconPlus = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+        );
+        const IconTag = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l5 5a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828l-5-5z" /><path d="M7 7h.01" /></svg>
+        );
+        const IconShoppingBag = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+        );
+        const IconCrown = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m5 18 1.427-4.573a2.828 2.828 0 0 1 5.347.935c0 .09-.033.473-.033.473a2.828 2.828 0 0 1 5.307-.76 2.828 2.828 0 0 1 5.347.935L22 18H5.002Z" /><path d="m15.589 10.375 1.583-5.25A2.828 2.828 0 0 1 18.5 7.5a2.828 2.828 0 0 1-1.328 1.93" /><path d="m8.589 10.375-1.583-5.25A2.828 2.828 0 0 0 5.5 7.5a2.828 2.828 0 0 0 1.328 1.93" /></svg>
+        );
+        const IconTrash = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+        );
+        const IconStore = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7" /><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4" /><path d="M2 7h20" /><path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7" /></svg>
+        );
+        const IconPencil = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+        );
+
+
+        // ==========================================
+        // Database Setup
+        // ==========================================
+        const db = new Dexie('PriceTrackerDB');
+        db.version(1).stores({
+            categories: '++id, &name',
+            items: '++id, name, categoryId',
+            prices: '++id, itemId, shop, price, amount, unitPrice, date'
+        });
+
+        // Initialize Data
+        const initData = async () => {
+            const count = await db.categories.count();
+            if (count === 0) {
+                await db.categories.bulkAdd([
+                    { name: '食品' },
+                    { name: '日用品' },
+                    { name: 'ベビー' }
+                ]);
+            }
+        };
+
+        // ==========================================
+        // Utilities
+        // ==========================================
+        const formatPrice = (price) => {
+            return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(price);
+        };
+
+        const formatDate = (dateString) => {
+            const date = new Date(dateString);
+            return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        // ==========================================
+        // Components
+        // ==========================================
+
+        // --- Button ---
+        const Button = ({ children, onClick, variant = 'primary', className = '', ...props }) => {
+            const baseStyle = "px-4 py-3 rounded-2xl font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2";
+            const variants = {
+                primary: "bg-main text-white shadow-soft hover:bg-main-dark",
+                secondary: "bg-white text-text border border-border hover:bg-gray-50",
+                ghost: "text-text-light hover:text-text hover:bg-gray-100/50",
+                accent: "bg-accent text-white shadow-soft hover:bg-yellow-500",
+                danger: "bg-red-50 text-red-500 hover:bg-red-100"
+            };
+            return (
+                <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`} {...props}>
+                    {children}
+                </button>
+            );
+        };
+
+        // --- Card ---
+        const Card = ({ children, className = '', onClick }) => (
+            <div onClick={onClick} className={`bg-white rounded-2xl shadow-soft p-4 ${className} ${onClick ? 'cursor-pointer active:bg-gray-50 transition-colors' : ''}`}>
+                {children}
+            </div>
+        );
+
+        // --- Modal ---
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
+                    <div className="bg-base w-full max-w-sm rounded-3xl p-6 relative z-10 shadow-2xl transform transition-all animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-text">{title}</h3>
+                            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-light"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                            </button>
+                        </div>
+                        {children}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Input ---
+        const Input = ({ label, ...props }) => (
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-text-light mb-1.5 ml-1">{label}</label>
+                <input className="w-full px-4 py-3 rounded-2xl bg-white border border-border text-text placeholder-gray-300 focus:outline-none focus:border-main focus:ring-2 focus:ring-main-light transition-all" {...props} />
+            </div>
+        );
+
+        // --- Screen: Price History (Item Details) ---
+        const PriceHistory = ({ item, onBack }) => {
+            const [prices, setPrices] = useState([]);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [formData, setFormData] = useState({ shop: '', price: '', amount: '' });
+
+            const loadPrices = async () => {
+                if (!item) return;
+                const result = await db.prices.where('itemId').equals(item.id).reverse().sortBy('date');
+                setPrices(result);
+            };
+
+            useEffect(() => { loadPrices(); }, [item]);
+
+            // Calculate cheapest unit price
+            const minUnitPrice = useMemo(() => {
+                if (prices.length === 0) return Infinity;
+                return Math.min(...prices.map(p => p.unitPrice));
+            }, [prices]);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!formData.price || !formData.shop) return;
+
+                const price = parseFloat(formData.price);
+                const amount = formData.amount ? parseFloat(formData.amount) : 1;
+                const unitPrice = price / amount;
+
+                await db.prices.add({
+                    itemId: item.id,
+                    shop: formData.shop,
+                    price: price,
+                    amount: formData.amount ? parseFloat(formData.amount) : null,
+                    unitPrice: unitPrice,
+                    date: new Date().toISOString()
+                });
+
+                setFormData({ shop: '', price: '', amount: '' });
+                setIsModalOpen(false);
+                loadPrices();
+            };
+
+            const handleDelete = async (id) => {
+                if (confirm('この履歴を削除しますか？')) {
+                    await db.prices.delete(id);
+                    loadPrices();
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50">
+                        <div className="flex items-center gap-2 mb-2">
+                            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
+                                <IconChevronLeft />
+                            </button>
+                            <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">商品詳細</span>
+                        </div>
+                        <h2 className="text-2xl font-bold text-text truncate">{item.name}</h2>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto px-4 py-6">
+                        {/* Add Button */}
+                        <Card className="mb-6 border-2 border-dashed border-border bg-transparent hover:bg-white flex flex-col items-center justify-center py-6 gap-2" onClick={() => setIsModalOpen(true)}>
+                            <div className="w-10 h-10 rounded-full bg-main-light text-main flex items-center justify-center">
+                                <IconPlus />
+                            </div>
+                            <span className="text-sm font-bold text-text-light">新しい価格を記録</span>
+                        </Card>
+
+                        <h3 className="text-sm font-bold text-text-light mb-3 ml-1 flex items-center gap-2">
+                            <IconStore className="w-4 h-4" />
+                            価格履歴
+                        </h3>
+
+                        <div className="space-y-3">
+                            {prices.length === 0 ? (
+                                <p className="text-center text-text-light text-sm py-8">履歴がまだありません</p>
+                            ) : (
+                                prices.map(price => (
+                                    <Card key={price.id} className="relative overflow-hidden group">
+                                        {/* Cheapest Badge */}
+                                        {price.unitPrice === minUnitPrice && (
+                                            <div className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl ">
+                                                <div className="flex items-center gap-1">
+                                                    <IconCrown className="w-3 h-3" strokeWidth="3" />
+                                                    最安値
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-start mb-2 pr-6">
+                                            <div>
+                                                <div className="text-lg font-bold text-text">{price.shop}</div>
+                                                <div className="text-xs text-text-light">{formatDate(price.date)}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xl font-bold text-main-dark">
+                                                    {formatPrice(price.price)}
+                                                </div>
+                                                {price.amount && (
+                                                    <div className="text-xs text-text-light">
+                                                        {price.amount} {price.amount < 10 ? '個' : 'g/ml'} あたり
+                                                        <span className="ml-1 font-medium text-text">@{price.unitPrice.toFixed(1)}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(price.id); }} className="absolute bottom-2 right-2 p-2 text-text-light hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <IconTrash className="w-4 h-4" />
+                                        </button>
+                                    </Card>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Modal */}
+                    <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="価格を登録">
+                        <form onSubmit={handleSubmit}>
+                            <Input
+                                label="お店の名前"
+                                placeholder="例：スーパー〇〇"
+                                value={formData.shop}
+                                onChange={e => setFormData({ ...formData, shop: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="価格 (円)"
+                                type="number"
+                                placeholder="0"
+                                value={formData.price}
+                                onChange={e => setFormData({ ...formData, price: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="内容量 (g / ml / 個) ※任意"
+                                type="number"
+                                placeholder="100"
+                                value={formData.amount}
+                                onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                            />
+                            {formData.price && formData.amount && (
+                                <div className="bg-main-light p-3 rounded-xl mb-6 flex justify-between items-center text-sm">
+                                    <span className="text-text-light">計算単価:</span>
+                                    <span className="font-bold text-main">@ {(formData.price / formData.amount).toFixed(2)} / 単位</span>
+                                </div>
+                            )}
+                            <div className="mt-6">
+                                <Button type="submit" className="w-full">保存する</Button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // --- Screen: Item List ---
+        const ItemList = ({ category, onBack, onSelectItem }) => {
+            const [items, setItems] = useState([]);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [newItemName, setNewItemName] = useState('');
+            const [itemPrices, setItemPrices] = useState({});
+
+            const loadItems = async () => {
+                const result = await db.items.where('categoryId').equals(category.id).toArray();
+                setItems(result);
+
+                // Fetch best prices for each item
+                const pricesMap = {};
+                for (const item of result) {
+                    const latestPrices = await db.prices.where('itemId').equals(item.id).toArray();
+                    if (latestPrices.length > 0) {
+                        // Find lowest unit price
+                        const cheapest = latestPrices.reduce((prev, curr) =>
+                            prev.unitPrice < curr.unitPrice ? prev : curr
+                        );
+                        pricesMap[item.id] = cheapest;
+                    }
+                }
+                setItemPrices(pricesMap);
+            };
+
+            useEffect(() => { loadItems(); }, [category]);
+
+            const handleAddItem = async (e) => {
+                e.preventDefault();
+                if (!newItemName) return;
+                await db.items.add({
+                    name: newItemName,
+                    categoryId: category.id
+                });
+                setNewItemName('');
+                setIsModalOpen(false);
+                loadItems();
+            };
+
+            const handleDeleteItem = async (e, id) => {
+                e.stopPropagation();
+                if (confirm('商品を削除しますか？価格履歴もすべて削除されます。')) {
+                    await db.transaction('rw', db.items, db.prices, async () => {
+                        await db.items.delete(id);
+                        const priceIds = await db.prices.where('itemId').equals(id).primaryKeys();
+                        await db.prices.bulkDelete(priceIds);
+                    });
+                    loadItems();
+                }
+            }
+
+            return (
+                <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-4 py-4 border-b border-border/50">
+                        <div className="flex items-center gap-2 mb-2">
+                            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-text-light">
+                                <IconChevronLeft />
+                            </button>
+                            <span className="text-xs font-medium text-main bg-main-light px-2 py-1 rounded-lg">カテゴリ</span>
+                        </div>
+                        <h2 className="text-2xl font-bold text-text">{category.name}</h2>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto px-4 py-6">
+                        <div className="grid gap-3">
+                            <Button variant="secondary" className="mb-2 w-full border-dashed" onClick={() => setIsModalOpen(true)}>
+                                <IconPlus className="w-5 h-5" />
+                                商品を追加
+                            </Button>
+
+                            {items.map(item => {
+                                const bestPrice = itemPrices[item.id];
+                                return (
+                                    <Card key={item.id} onClick={() => onSelectItem(item)} className="group">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h3 className="font-bold text-text text-lg mb-1">{item.name}</h3>
+                                                {bestPrice ? (
+                                                    <div className="text-sm text-text-light flex items-center gap-1">
+                                                        <span className="text-main font-bold">最安: {formatPrice(bestPrice.price)}</span>
+                                                        <span className="text-xs text-text-light/70">({bestPrice.shop})</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-text-light bg-gray-100 px-2 py-1 rounded-md">未記録</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 rounded-full bg-main-light flex items-center justify-center text-main opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <IconChevronLeft className="rotate-180 w-5 h-5" />
+                                                </div>
+                                                <button onClick={(e) => handleDeleteItem(e, item.id)} className="p-2 text-text-light hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <IconTrash className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="新しい商品を追加">
+                        <form onSubmit={handleAddItem}>
+                            <Input
+                                label="商品名"
+                                placeholder="例：牛乳、おむつ..."
+                                value={newItemName}
+                                onChange={e => setNewItemName(e.target.value)}
+                                required
+                            />
+                            <div className="mt-6">
+                                <Button type="submit" className="w-full">追加する</Button>
+                            </div>
+                        </form>
+                    </Modal>
+
+                </div>
+            );
+        };
+
+        // --- Screen: Home (Categories) ---
+        const Home = ({ onSelectCategory }) => {
+            const [categories, setCategories] = useState([]);
+            const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+            const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+            const [newCategoryName, setNewCategoryName] = useState('');
+            const [editingCategory, setEditingCategory] = useState(null);
+
+            const loadCategories = async () => {
+                const result = await db.categories.toArray();
+                setCategories(result);
+            };
+
+            useEffect(() => { loadCategories(); }, []);
+
+            const handleAddCategory = async (e) => {
+                e.preventDefault();
+                if (!newCategoryName) return;
+                await db.categories.add({ name: newCategoryName });
+                setNewCategoryName('');
+                setIsAddModalOpen(false);
+                loadCategories();
+            };
+
+            const openEditModal = (e, cat) => {
+                e.stopPropagation();
+                setEditingCategory(cat);
+                setNewCategoryName(cat.name);
+                setIsEditModalOpen(true);
+            };
+
+            const handleUpdateCategory = async (e) => {
+                e.preventDefault();
+                if (!newCategoryName || !editingCategory) return;
+                await db.categories.update(editingCategory.id, { name: newCategoryName });
+                setNewCategoryName('');
+                setEditingCategory(null);
+                setIsEditModalOpen(false);
+                loadCategories();
+            };
+
+            const handleDeleteCategory = async () => {
+                if (!editingCategory) return;
+                if (confirm(`「${editingCategory.name}」を削除しますか？\n含まれる商品や価格データもすべて削除されます。`)) {
+                    await db.transaction('rw', db.categories, db.items, db.prices, async () => {
+                        await db.categories.delete(editingCategory.id);
+                        const items = await db.items.where('categoryId').equals(editingCategory.id).toArray();
+                        const itemIds = items.map(i => i.id);
+                        await db.items.bulkDelete(itemIds);
+                        await db.prices.where('itemId').anyOf(itemIds).delete();
+                    });
+                    setIsEditModalOpen(false);
+                    setEditingCategory(null);
+                    loadCategories();
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-6 py-6 border-b border-border/50">
+                        <h1 className="text-2xl font-bold text-text tracking-wide flex items-center gap-2">
+                            <span className="text-main">♡</span> Price Tracker
+                        </h1>
+                        <p className="text-xs text-text-light mt-1 pl-6">お買い物の底値を賢く管理</p>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto px-4 py-6">
+                        <div className="grid grid-cols-2 gap-3 mb-6">
+                            {categories.map(cat => (
+                                <Card key={cat.id} onClick={() => onSelectCategory(cat)} className="aspect-[4/3] flex flex-col items-center justify-center gap-2 hover:bg-main-light/30 transition-colors border border-transparent hover:border-main-light relative group">
+                                    <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center text-main mb-1">
+                                        {cat.name === '食品' ? '🍎' : cat.name === '日用品' ? '🧻' : cat.name === 'ベビー' ? '👶' : '🏷️'}
+                                    </div>
+                                    <span className="font-bold text-text">{cat.name}</span>
+
+                                    <button
+                                        onClick={(e) => openEditModal(e, cat)}
+                                        className="absolute top-2 right-2 p-1.5 text-text-light hover:text-main bg-white/80 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <IconPencil className="w-4 h-4" />
+                                    </button>
+                                </Card>
+                            ))}
+                            <button onClick={() => { setNewCategoryName(''); setIsAddModalOpen(true); }} className="aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-light hover:bg-white hover:text-main hover:border-main transition-colors">
+                                <IconPlus className="w-8 h-8" />
+                                <span className="text-xs font-bold">追加</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Add Modal */}
+                    <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="新しいジャンル">
+                        <form onSubmit={handleAddCategory}>
+                            <Input
+                                label="ジャンル名"
+                                placeholder="例：ペット用品"
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                required
+                            />
+                            <div className="mt-6">
+                                <Button type="submit" className="w-full">追加する</Button>
+                            </div>
+                        </form>
+                    </Modal>
+
+                    {/* Edit Modal */}
+                    <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="ジャンルを編集">
+                        <form onSubmit={handleUpdateCategory}>
+                            <Input
+                                label="ジャンル名"
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                required
+                            />
+                            <div className="mt-6 space-y-3">
+                                <Button type="submit" className="w-full">更新する</Button>
+                                <Button type="button" variant="danger" className="w-full" onClick={handleDeleteCategory}>
+                                    このジャンルを削除
+                                </Button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // --- App Layout ---
+        const App = () => {
+            const [view, setView] = useState('home'); // home, items, history
+            const [selectedCategory, setSelectedCategory] = useState(null);
+            const [selectedItem, setSelectedItem] = useState(null);
+
+            useEffect(() => {
+                // Initialize DB Data
+                initData();
+            }, []);
+
+            const goToItems = (category) => {
+                setSelectedCategory(category);
+                setView('items');
+            };
+
+            const goToHistory = (item) => {
+                setSelectedItem(item);
+                setView('history');
+            };
+
+            const goBack = () => {
+                if (view === 'history') setView('items');
+                else if (view === 'items') setView('home');
+            };
+
+            return (
+                <div className="max-w-md mx-auto bg-base min-h-screen shadow-2xl relative overflow-hidden">
+                    {/* View Transition Container (Simplified) */}
+                    <div className="h-screen flex flex-col">
+                        {view === 'home' && <Home onSelectCategory={goToItems} />}
+                        {view === 'items' && <ItemList category={selectedCategory} onBack={goBack} onSelectItem={goToHistory} />}
+                        {view === 'history' && <PriceHistory item={selectedItem} onBack={goBack} />}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
