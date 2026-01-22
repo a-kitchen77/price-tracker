@@ -290,7 +290,18 @@
                 setCategory(cat);
 
                 // Load Prices
-                const result = await db.prices.where('itemId').equals(item.id).reverse().sortBy('date');
+                const result = await db.prices.where('itemId').equals(item.id).toArray();
+
+                // Sort by cheapness (unit price in tax), then by date (newest)
+                result.sort((a, b) => {
+                    const rate = cat ? cat.taxRate : 0.08; // Fallback tax rate
+                    const priceA = a.unitPriceInTax || calculateInclusivePrice(a.unitPrice, a.inputType || 'tax_excluded', rate);
+                    const priceB = b.unitPriceInTax || calculateInclusivePrice(b.unitPrice, b.inputType || 'tax_excluded', rate);
+
+                    if (Math.abs(priceA - priceB) > 0.001) return priceA - priceB;
+                    return new Date(b.date) - new Date(a.date);
+                });
+
                 setPrices(result);
             };
 
