@@ -103,6 +103,12 @@
         const IconPencil = ({ className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
         );
+        const IconSettings = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.72l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+        );
+        const IconCheck = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 6 9 17l-5-5" /></svg>
+        );
 
 
         // ==========================================
@@ -115,15 +121,42 @@
             prices: '++id, itemId, shop, price, amount, unitPrice, date'
         });
 
+        // Version 2: Add taxRate, inputType, unitPriceInTax, settings table
+        db.version(2).stores({
+            categories: '++id, &name, taxRate',
+            items: '++id, name, categoryId',
+            prices: '++id, itemId, shop, price, amount, unitPrice, inputType, unitPriceInTax, date',
+            settings: 'key, value'
+        }).upgrade(trans => {
+            // Migration script if needed (mostly handled in initData)
+        });
+
+        // Constants
+        const TAX_RATES = { EIGHT: 0.08, TEN: 0.10 };
+
         // Initialize Data
         const initData = async () => {
+            // 1. Categories
             const count = await db.categories.count();
             if (count === 0) {
                 await db.categories.bulkAdd([
-                    { name: '食品' },
-                    { name: '日用品' },
-                    { name: 'ベビー' }
+                    { name: '食品', taxRate: 0.08 },
+                    { name: '日用品', taxRate: 0.10 },
+                    { name: 'ベビー', taxRate: 0.10 }
                 ]);
+            } else {
+                // Migrate existing categories if taxRate is missing
+                await db.categories.toCollection().modify(cat => {
+                    if (cat.taxRate === undefined) {
+                        cat.taxRate = cat.name === '食品' ? 0.08 : 0.10;
+                    }
+                });
+            }
+
+            // 2. Settings
+            const mode = await db.settings.get('priceDisplayMode');
+            if (!mode) {
+                await db.settings.put({ key: 'priceDisplayMode', value: 'tax_excluded' }); // Default: tax_excluded
             }
         };
 
@@ -137,6 +170,22 @@
         const formatDate = (dateString) => {
             const date = new Date(dateString);
             return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        // Price Calculation Helpers
+        const calculateInclusivePrice = (price, inputType, taxRate) => {
+            if (inputType === 'tax_included') return price;
+            return price * (1 + taxRate);
+        };
+
+        const calculateDisplayPrice = (price, inputType, taxRate, displayMode) => {
+            // mode: 'tax_included' -> show inclusive price
+            if (displayMode === 'tax_included') {
+                return calculateInclusivePrice(price, inputType, taxRate);
+            }
+            // mode: 'tax_excluded' -> show input price if excluded, or calculated excluded price
+            if (inputType === 'tax_excluded') return price;
+            return price / (1 + taxRate);
         };
 
         // ==========================================
@@ -194,33 +243,82 @@
             </div>
         );
 
-        // --- Screen: Price History (Item Details) ---
-        const PriceHistory = ({ item, onBack }) => {
-            const [prices, setPrices] = useState([]);
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [formData, setFormData] = useState({ shop: '', price: '', amount: '' });
+        // --- Settings Modal ---
+        const SettingsModal = ({ isOpen, onClose, currentMode, onUpdateMode }) => {
+            if (!isOpen) return null;
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title="アプリ設定">
+                    <div className="space-y-6">
+                        <div>
+                            <h4 className="font-bold text-text mb-2 flex items-center gap-2">
+                                <IconTag className="w-4 h-4" /> 価格表示モード
+                            </h4>
+                            <p className="text-xs text-text-light mb-3">リストや詳細画面での価格表示を切り替えます。</p>
 
-            const loadPrices = async () => {
+                            <div className="flex bg-gray-100 p-1 rounded-xl">
+                                <button
+                                    onClick={() => onUpdateMode('tax_excluded')}
+                                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currentMode === 'tax_excluded' ? 'bg-white text-main shadow-sm' : 'text-text-light hover:text-text'}`}
+                                >
+                                    税抜で表示
+                                </button>
+                                <button
+                                    onClick={() => onUpdateMode('tax_included')}
+                                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currentMode === 'tax_included' ? 'bg-white text-main shadow-sm' : 'text-text-light hover:text-text'}`}
+                                >
+                                    税込で表示
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-text-light mt-2 ml-1">※ 入力時の「税込/税抜」設定とは異なります。あくまで表示上の計算です。</p>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // --- Screen: Price History (Item Details) ---
+        const PriceHistory = ({ item, onBack, displayMode }) => {
+            const [prices, setPrices] = useState([]);
+            const [category, setCategory] = useState(null);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [formData, setFormData] = useState({ shop: '', price: '', amount: '', inputType: 'tax_excluded' });
+
+            const loadData = async () => {
                 if (!item) return;
+                // Load Category for Tax Rate
+                const cat = await db.categories.get(item.categoryId);
+                setCategory(cat);
+
+                // Load Prices
                 const result = await db.prices.where('itemId').equals(item.id).reverse().sortBy('date');
                 setPrices(result);
             };
 
-            useEffect(() => { loadPrices(); }, [item]);
+            useEffect(() => { loadData(); }, [item]);
 
-            // Calculate cheapest unit price
-            const minUnitPrice = useMemo(() => {
-                if (prices.length === 0) return Infinity;
-                return Math.min(...prices.map(p => p.unitPrice));
-            }, [prices]);
+            // Calculate cheapest unit price (Always compare with Inclusive Price)
+            const minUnitPriceInTax = useMemo(() => {
+                if (prices.length === 0 || !category) return Infinity;
+                // Use stored unitPriceInTax if available, otherwise calculate fallback
+                return Math.min(...prices.map(p => {
+                    if (p.unitPriceInTax) return p.unitPriceInTax;
+                    // Fallback for old data: assume tax_excluded and use current category tax rate
+                    const inputType = p.inputType || 'tax_excluded';
+                    const rawUnitPrice = p.unitPrice; // This is raw input unit price
+                    return calculateInclusivePrice(rawUnitPrice, inputType, category.taxRate || 0.08);
+                }));
+            }, [prices, category]);
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!formData.price || !formData.shop) return;
+                if (!formData.price || !formData.shop || !category) return;
 
                 const price = parseFloat(formData.price);
                 const amount = formData.amount ? parseFloat(formData.amount) : 1;
-                const unitPrice = price / amount;
+                const unitPrice = price / amount; // Input based unit price
+
+                // Calculate Unit Price In Tax for sorting/ranking
+                const unitPriceInTax = calculateInclusivePrice(unitPrice, formData.inputType, category.taxRate);
 
                 await db.prices.add({
                     itemId: item.id,
@@ -228,18 +326,20 @@
                     price: price,
                     amount: formData.amount ? parseFloat(formData.amount) : null,
                     unitPrice: unitPrice,
+                    unitPriceInTax: unitPriceInTax,
+                    inputType: formData.inputType,
                     date: new Date().toISOString()
                 });
 
-                setFormData({ shop: '', price: '', amount: '' });
+                setFormData({ shop: '', price: '', amount: '', inputType: 'tax_excluded' });
                 setIsModalOpen(false);
-                loadPrices();
+                loadData();
             };
 
             const handleDelete = async (id) => {
                 if (confirm('この履歴を削除しますか？')) {
                     await db.prices.delete(id);
-                    loadPrices();
+                    loadData();
                 }
             };
 
@@ -266,49 +366,73 @@
                             <span className="text-sm font-bold text-text-light">新しい価格を記録</span>
                         </Card>
 
-                        <h3 className="text-sm font-bold text-text-light mb-3 ml-1 flex items-center gap-2">
-                            <IconStore className="w-4 h-4" />
-                            価格履歴
-                        </h3>
+                        <div className="flex justify-between items-center mb-3 ml-1">
+                            <h3 className="text-sm font-bold text-text-light flex items-center gap-2">
+                                <IconStore className="w-4 h-4" />
+                                価格履歴
+                            </h3>
+                            <span className="text-[10px] text-text-light bg-gray-100 px-2 py-1 rounded-full">
+                                {displayMode === 'tax_included' ? '税込表示' : '税抜表示'}
+                            </span>
+                        </div>
 
                         <div className="space-y-3">
                             {prices.length === 0 ? (
                                 <p className="text-center text-text-light text-sm py-8">履歴がまだありません</p>
                             ) : (
-                                prices.map(price => (
-                                    <Card key={price.id} className="relative overflow-hidden group">
-                                        {/* Cheapest Badge */}
-                                        {price.unitPrice === minUnitPrice && (
-                                            <div className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl ">
-                                                <div className="flex items-center gap-1">
-                                                    <IconCrown className="w-3 h-3" strokeWidth="3" />
-                                                    最安値
-                                                </div>
-                                            </div>
-                                        )}
+                                prices.map(price => {
+                                    // Calculate display values
+                                    const inputType = price.inputType || 'tax_excluded';
+                                    const rate = category ? category.taxRate : 0.08;
 
-                                        <div className="flex justify-between items-start mb-2 pr-6">
-                                            <div>
-                                                <div className="text-lg font-bold text-text">{price.shop}</div>
-                                                <div className="text-xs text-text-light">{formatDate(price.date)}</div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-xl font-bold text-main-dark">
-                                                    {formatPrice(price.price)}
-                                                </div>
-                                                {price.amount && (
-                                                    <div className="text-xs text-text-light">
-                                                        {price.amount} {price.amount < 10 ? '個' : 'g/ml'} あたり
-                                                        <span className="ml-1 font-medium text-text">@{price.unitPrice.toFixed(1)}</span>
+                                    const displayPriceVal = calculateDisplayPrice(price.price, inputType, rate, displayMode);
+
+                                    // For unit price display
+                                    const unitP = price.price / (price.amount || 1);
+                                    const displayUnitPriceVal = calculateDisplayPrice(unitP, inputType, rate, displayMode);
+
+                                    // For Best Price Check
+                                    const myUnitPriceInTax = price.unitPriceInTax || calculateInclusivePrice(unitP, inputType, rate);
+                                    const isCheapest = Math.abs(myUnitPriceInTax - minUnitPriceInTax) < 0.001;
+
+                                    return (
+                                        <Card key={price.id} className="relative overflow-hidden group">
+                                            {/* Cheapest Badge */}
+                                            {isCheapest && (
+                                                <div className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl ">
+                                                    <div className="flex items-center gap-1">
+                                                        <IconCrown className="w-3 h-3" strokeWidth="3" />
+                                                        最安値
                                                     </div>
-                                                )}
+                                                </div>
+                                            )}
+
+                                            <div className="flex justify-between items-start mb-2 pr-6">
+                                                <div>
+                                                    <div className="text-lg font-bold text-text">{price.shop}</div>
+                                                    <div className="text-xs text-text-light">{formatDate(price.date)}</div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-xl font-bold text-main-dark">
+                                                        {formatPrice(displayPriceVal)}
+                                                    </div>
+                                                    {price.amount && (
+                                                        <div className="text-xs text-text-light">
+                                                            {price.amount} {price.amount < 10 ? '個' : 'g/ml'} あたり
+                                                            <span className="ml-1 font-medium text-text">@{displayUnitPriceVal.toFixed(1)}</span>
+                                                        </div>
+                                                    )}
+                                                    <div className="text-[10px] text-text-light mt-0.5">
+                                                        (入力: {inputType === 'tax_included' ? '税込' : '税抜'})
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(price.id); }} className="absolute bottom-2 right-2 p-2 text-text-light hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <IconTrash className="w-4 h-4" />
-                                        </button>
-                                    </Card>
-                                ))
+                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(price.id); }} className="absolute bottom-2 right-2 p-2 text-gray-300 hover:text-red-400 transition-colors">
+                                                <IconTrash className="w-4 h-4" />
+                                            </button>
+                                        </Card>
+                                    )
+                                })
                             )}
                         </div>
                     </div>
@@ -323,14 +447,38 @@
                                 onChange={e => setFormData({ ...formData, shop: e.target.value })}
                                 required
                             />
-                            <Input
-                                label="価格 (円)"
-                                type="number"
-                                placeholder="0"
-                                value={formData.price}
-                                onChange={e => setFormData({ ...formData, price: e.target.value })}
-                                required
-                            />
+
+                            {/* Price Input with Toggle */}
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-text-light mb-1.5 ml-1">価格 (円)</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        className="flex-1 px-4 py-3 rounded-2xl bg-white border border-border text-text placeholder-gray-300 focus:outline-none focus:border-main focus:ring-2 focus:ring-main-light transition-all"
+                                        type="number"
+                                        placeholder="0"
+                                        value={formData.price}
+                                        onChange={e => setFormData({ ...formData, price: e.target.value })}
+                                        required
+                                    />
+                                    <div className="flex bg-gray-100 p-1 rounded-2xl shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, inputType: 'tax_excluded' })}
+                                            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${formData.inputType === 'tax_excluded' ? 'bg-white text-main shadow-sm' : 'text-text-light'}`}
+                                        >
+                                            税抜
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, inputType: 'tax_included' })}
+                                            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${formData.inputType === 'tax_included' ? 'bg-white text-main shadow-sm' : 'text-text-light'}`}
+                                        >
+                                            税込
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <Input
                                 label="内容量 (g / ml / 個) ※任意"
                                 type="number"
@@ -338,10 +486,12 @@
                                 value={formData.amount}
                                 onChange={e => setFormData({ ...formData, amount: e.target.value })}
                             />
-                            {formData.price && formData.amount && (
+                            {formData.price && formData.amount && category && (
                                 <div className="bg-main-light p-3 rounded-xl mb-6 flex justify-between items-center text-sm">
-                                    <span className="text-text-light">計算単価:</span>
-                                    <span className="font-bold text-main">@ {(formData.price / formData.amount).toFixed(2)} / 単位</span>
+                                    <span className="text-text-light">計算単価 (税込換算):</span>
+                                    <span className="font-bold text-main">
+                                        @ {calculateInclusivePrice(formData.price / formData.amount, formData.inputType, category.taxRate).toFixed(2)}
+                                    </span>
                                 </div>
                             )}
                             <div className="mt-6">
@@ -354,7 +504,7 @@
         };
 
         // --- Screen: Item List ---
-        const ItemList = ({ category, onBack, onSelectItem }) => {
+        const ItemList = ({ category, onBack, onSelectItem, displayMode }) => {
             const [items, setItems] = useState([]);
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [newItemName, setNewItemName] = useState('');
@@ -362,20 +512,36 @@
 
             const loadItems = async () => {
                 const result = await db.items.where('categoryId').equals(category.id).toArray();
-                setItems(result);
 
                 // Fetch best prices for each item
                 const pricesMap = {};
                 for (const item of result) {
                     const latestPrices = await db.prices.where('itemId').equals(item.id).toArray();
                     if (latestPrices.length > 0) {
-                        // Find lowest unit price
-                        const cheapest = latestPrices.reduce((prev, curr) =>
-                            prev.unitPrice < curr.unitPrice ? prev : curr
-                        );
+                        // Find lowest unit price In Tax !!
+                        // Use unitPriceInTax if exists, otherwise calc
+                        const cheapest = latestPrices.reduce((prev, curr) => {
+                            const prevTax = prev.unitPriceInTax || calculateInclusivePrice(prev.unitPrice, prev.inputType || 'tax_excluded', category.taxRate);
+                            const currTax = curr.unitPriceInTax || calculateInclusivePrice(curr.unitPrice, curr.inputType || 'tax_excluded', category.taxRate);
+                            return prevTax < currTax ? prev : curr;
+                        }, latestPrices[0]);
                         pricesMap[item.id] = cheapest;
                     }
                 }
+
+                // Sort items by cheapest price (if available) - Optional but good for UX
+                result.sort((a, b) => {
+                    const pA = pricesMap[a.id];
+                    const pB = pricesMap[b.id];
+                    if (!pA && !pB) return 0;
+                    if (!pA) return 1;
+                    if (!pB) return -1;
+                    const taxA = pA.unitPriceInTax || calculateInclusivePrice(pA.unitPrice, pA.inputType || 'tax_excluded', category.taxRate);
+                    const taxB = pB.unitPriceInTax || calculateInclusivePrice(pB.unitPrice, pB.inputType || 'tax_excluded', category.taxRate);
+                    return taxA - taxB;
+                });
+
+                setItems(result);
                 setItemPrices(pricesMap);
             };
 
@@ -428,6 +594,13 @@
 
                             {items.map(item => {
                                 const bestPrice = itemPrices[item.id];
+                                let displayPriceString = null;
+                                if (bestPrice) {
+                                    const inputType = bestPrice.inputType || 'tax_excluded';
+                                    const val = calculateDisplayPrice(bestPrice.price, inputType, category.taxRate, displayMode);
+                                    displayPriceString = formatPrice(val);
+                                }
+
                                 return (
                                     <Card key={item.id} onClick={() => onSelectItem(item)} className="group">
                                         <div className="flex justify-between items-center">
@@ -435,7 +608,7 @@
                                                 <h3 className="font-bold text-text text-lg mb-1">{item.name}</h3>
                                                 {bestPrice ? (
                                                     <div className="text-sm text-text-light flex items-center gap-1">
-                                                        <span className="text-main font-bold">最安: {formatPrice(bestPrice.price)}</span>
+                                                        <span className="text-main font-bold">最安: {displayPriceString}</span>
                                                         <span className="text-xs text-text-light/70">({bestPrice.shop})</span>
                                                     </div>
                                                 ) : (
@@ -443,10 +616,10 @@
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-main-light flex items-center justify-center text-main opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="w-8 h-8 rounded-full bg-main-light flex items-center justify-center text-main transition-opacity">
                                                     <IconChevronLeft className="rotate-180 w-5 h-5" />
                                                 </div>
-                                                <button onClick={(e) => handleDeleteItem(e, item.id)} className="p-2 text-text-light hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={(e) => handleDeleteItem(e, item.id)} className="p-2 text-gray-300 hover:text-red-400 transition-colors">
                                                     <IconTrash className="w-4 h-4" />
                                                 </button>
                                             </div>
@@ -477,11 +650,15 @@
         };
 
         // --- Screen: Home (Categories) ---
-        const Home = ({ onSelectCategory }) => {
+        const Home = ({ onSelectCategory, displayMode, onUpdateMode }) => {
             const [categories, setCategories] = useState([]);
             const [isAddModalOpen, setIsAddModalOpen] = useState(false);
             const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
             const [newCategoryName, setNewCategoryName] = useState('');
+            const [newCategoryTaxRate, setNewCategoryTaxRate] = useState(0.08); // 0.08 or 0.10
+
             const [editingCategory, setEditingCategory] = useState(null);
 
             const loadCategories = async () => {
@@ -494,8 +671,12 @@
             const handleAddCategory = async (e) => {
                 e.preventDefault();
                 if (!newCategoryName) return;
-                await db.categories.add({ name: newCategoryName });
+                await db.categories.add({
+                    name: newCategoryName,
+                    taxRate: newCategoryTaxRate
+                });
                 setNewCategoryName('');
+                setNewCategoryTaxRate(0.08);
                 setIsAddModalOpen(false);
                 loadCategories();
             };
@@ -504,15 +685,22 @@
                 e.stopPropagation();
                 setEditingCategory(cat);
                 setNewCategoryName(cat.name);
+                setNewCategoryTaxRate(cat.taxRate || 0.08);
                 setIsEditModalOpen(true);
             };
 
             const handleUpdateCategory = async (e) => {
                 e.preventDefault();
                 if (!newCategoryName || !editingCategory) return;
-                await db.categories.update(editingCategory.id, { name: newCategoryName });
+
+                await db.categories.update(editingCategory.id, {
+                    name: newCategoryName,
+                    taxRate: newCategoryTaxRate
+                });
+
                 setNewCategoryName('');
                 setEditingCategory(null);
+                setNewCategoryTaxRate(0.08);
                 setIsEditModalOpen(false);
                 loadCategories();
             };
@@ -533,14 +721,36 @@
                 }
             };
 
+            // Tax Rate Input Component
+            const TaxRateInput = () => (
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-text-light mb-1.5 ml-1">消費税率</label>
+                    <div className="flex bg-gray-100 p-1 rounded-2xl">
+                        <label className={`flex-1 flex items-center justify-center py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all ${Math.abs(newCategoryTaxRate - 0.08) < 0.001 ? 'bg-white text-main shadow-sm' : 'text-text-light'}`}>
+                            <input type="radio" name="taxRate" className="hidden" checked={Math.abs(newCategoryTaxRate - 0.08) < 0.001} onChange={() => setNewCategoryTaxRate(0.08)} />
+                            8% (食品)
+                        </label>
+                        <label className={`flex-1 flex items-center justify-center py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all ${Math.abs(newCategoryTaxRate - 0.10) < 0.001 ? 'bg-white text-main shadow-sm' : 'text-text-light'}`}>
+                            <input type="radio" name="taxRate" className="hidden" checked={Math.abs(newCategoryTaxRate - 0.10) < 0.001} onChange={() => setNewCategoryTaxRate(0.10)} />
+                            10% (その他)
+                        </label>
+                    </div>
+                </div>
+            );
+
             return (
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-6 py-6 border-b border-border/50">
-                        <h1 className="text-2xl font-bold text-text tracking-wide flex items-center gap-2">
-                            <span className="text-main">♡</span> Price Tracker
-                        </h1>
-                        <p className="text-xs text-text-light mt-1 pl-6">お買い物の底値を賢く管理</p>
+                    <div className="sticky top-0 bg-base/95 backdrop-blur-sm z-10 px-6 py-6 border-b border-border/50 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-2xl font-bold text-text tracking-wide flex items-center gap-2">
+                                <span className="text-main">♡</span> Price Tracker
+                            </h1>
+                            <p className="text-xs text-text-light mt-1 pl-6">お買い物の底値を賢く管理</p>
+                        </div>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 -mr-2 rounded-full hover:bg-gray-100 text-text-light">
+                            <IconSettings className="w-6 h-6" />
+                        </button>
                     </div>
 
                     {/* Content */}
@@ -549,9 +759,12 @@
                             {categories.map(cat => (
                                 <Card key={cat.id} onClick={() => onSelectCategory(cat)} className="aspect-[4/3] flex flex-col items-center justify-center gap-2 hover:bg-main-light/30 transition-colors border border-transparent hover:border-main-light relative group">
                                     <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center text-main mb-1">
-                                        {cat.name === '食品' ? '🍎' : cat.name === '日用品' ? '🧻' : cat.name === 'ベビー' ? '👶' : '🏷️'}
+                                        {cat.name.includes('食品') ? '🍎' : cat.name.includes('日用品') ? '🧻' : cat.name.includes('ベビー') ? '👶' : '🏷️'}
                                     </div>
                                     <span className="font-bold text-text">{cat.name}</span>
+                                    <div className="text-[10px] text-text-light bg-white/50 px-2 py-0.5 rounded-full">
+                                        {(cat.taxRate * 100).toFixed(0)}%
+                                    </div>
 
                                     <button
                                         onClick={(e) => openEditModal(e, cat)}
@@ -561,7 +774,7 @@
                                     </button>
                                 </Card>
                             ))}
-                            <button onClick={() => { setNewCategoryName(''); setIsAddModalOpen(true); }} className="aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-light hover:bg-white hover:text-main hover:border-main transition-colors">
+                            <button onClick={() => { setNewCategoryName(''); setNewCategoryTaxRate(0.08); setIsAddModalOpen(true); }} className="aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-light hover:bg-white hover:text-main hover:border-main transition-colors">
                                 <IconPlus className="w-8 h-8" />
                                 <span className="text-xs font-bold">追加</span>
                             </button>
@@ -578,6 +791,7 @@
                                 onChange={e => setNewCategoryName(e.target.value)}
                                 required
                             />
+                            <TaxRateInput />
                             <div className="mt-6">
                                 <Button type="submit" className="w-full">追加する</Button>
                             </div>
@@ -593,6 +807,7 @@
                                 onChange={e => setNewCategoryName(e.target.value)}
                                 required
                             />
+                            <TaxRateInput />
                             <div className="mt-6 space-y-3">
                                 <Button type="submit" className="w-full">更新する</Button>
                                 <Button type="button" variant="danger" className="w-full" onClick={handleDeleteCategory}>
@@ -601,6 +816,14 @@
                             </div>
                         </form>
                     </Modal>
+
+                    {/* Settings Modal */}
+                    <SettingsModal
+                        isOpen={isSettingsOpen}
+                        onClose={() => setIsSettingsOpen(false)}
+                        currentMode={displayMode}
+                        onUpdateMode={onUpdateMode}
+                    />
                 </div>
             );
         };
@@ -610,11 +833,20 @@
             const [view, setView] = useState('home'); // home, items, history
             const [selectedCategory, setSelectedCategory] = useState(null);
             const [selectedItem, setSelectedItem] = useState(null);
+            const [displayMode, setDisplayMode] = useState('tax_excluded'); // tax_excluded or tax_included
 
             useEffect(() => {
                 // Initialize DB Data
-                initData();
+                initData().then(async () => {
+                    const mode = await db.settings.get('priceDisplayMode');
+                    if (mode) setDisplayMode(mode.value);
+                });
             }, []);
+
+            const handleUpdateMode = async (mode) => {
+                await db.settings.put({ key: 'priceDisplayMode', value: mode });
+                setDisplayMode(mode);
+            };
 
             const goToItems = (category) => {
                 setSelectedCategory(category);
@@ -635,9 +867,28 @@
                 <div className="max-w-md mx-auto bg-base min-h-screen shadow-2xl relative overflow-hidden">
                     {/* View Transition Container (Simplified) */}
                     <div className="h-screen flex flex-col">
-                        {view === 'home' && <Home onSelectCategory={goToItems} />}
-                        {view === 'items' && <ItemList category={selectedCategory} onBack={goBack} onSelectItem={goToHistory} />}
-                        {view === 'history' && <PriceHistory item={selectedItem} onBack={goBack} />}
+                        {view === 'home' && (
+                            <Home
+                                onSelectCategory={goToItems}
+                                displayMode={displayMode}
+                                onUpdateMode={handleUpdateMode}
+                            />
+                        )}
+                        {view === 'items' && (
+                            <ItemList
+                                category={selectedCategory}
+                                onBack={goBack}
+                                onSelectItem={goToHistory}
+                                displayMode={displayMode}
+                            />
+                        )}
+                        {view === 'history' && (
+                            <PriceHistory
+                                item={selectedItem}
+                                onBack={goBack}
+                                displayMode={displayMode}
+                            />
+                        )}
                     </div>
                 </div>
             );
@@ -645,7 +896,3 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-    </script>
-</body>
-
-</html>
