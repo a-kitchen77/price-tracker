@@ -151,9 +151,9 @@
             settings: 'key, value'
         });
 
-        // Version 4: Add favorite field to items
-        db.version(4).stores({
-            categories: '++id, &name, taxRate',
+        // Version 5: Add icon field to categories
+        db.version(5).stores({
+            categories: '++id, &name, taxRate, icon',
             items: '++id, name, categoryId, favorite',
             prices: '++id, itemId, shop, price, amount, unitPrice, inputType, unitPriceInTax, date, memo',
             settings: 'key, value'
@@ -168,15 +168,21 @@
             const count = await db.categories.count();
             if (count === 0) {
                 await db.categories.bulkAdd([
-                    { name: '食品', taxRate: 0.08 },
-                    { name: '日用品', taxRate: 0.10 },
-                    { name: 'ベビー', taxRate: 0.10 }
+                    { name: '食品', taxRate: 0.08, icon: '🍎' },
+                    { name: '日用品', taxRate: 0.10, icon: '🧻' },
+                    { name: 'ベビー', taxRate: 0.10, icon: '👶' }
                 ]);
             } else {
-                // Migrate existing categories if taxRate is missing
+                // Migrate existing categories
                 await db.categories.toCollection().modify(cat => {
                     if (cat.taxRate === undefined) {
                         cat.taxRate = cat.name === '食品' ? 0.08 : 0.10;
+                    }
+                    if (!cat.icon) {
+                        if (cat.name.includes('食品')) cat.icon = '🍎';
+                        else if (cat.name.includes('日用品')) cat.icon = '🧻';
+                        else if (cat.name.includes('ベビー')) cat.icon = '👶';
+                        else cat.icon = '🏷️';
                     }
                 });
             }
@@ -264,10 +270,10 @@
         };
 
         // --- Input ---
-        const Input = ({ label, ...props }) => (
+        const Input = ({ label, className = '', ...props }) => (
             <div className="mb-4">
                 <label className="block text-sm font-medium text-text-light mb-1.5 ml-1">{label}</label>
-                <input className="w-full px-4 py-3 rounded-2xl bg-white border border-border text-text placeholder-gray-300 focus:outline-none focus:border-main focus:ring-2 focus:ring-main-light transition-all" {...props} />
+                <input className={`w-full px-4 py-3 rounded-2xl bg-white border border-border text-text placeholder-gray-300 focus:outline-none focus:border-main focus:ring-2 focus:ring-main-light transition-all ${className}`} {...props} />
             </div>
         );
 
@@ -959,6 +965,7 @@
             const fileInputRef = useRef(null);
 
             const [newCategoryName, setNewCategoryName] = useState('');
+            const [newCategoryIcon, setNewCategoryIcon] = useState('🏷️');
             const [newCategoryTaxRate, setNewCategoryTaxRate] = useState(0.08); // 0.08 or 0.10
 
             const [editingCategory, setEditingCategory] = useState(null);
@@ -975,9 +982,11 @@
                 if (!newCategoryName) return;
                 await db.categories.add({
                     name: newCategoryName,
-                    taxRate: newCategoryTaxRate
+                    taxRate: newCategoryTaxRate,
+                    icon: newCategoryIcon || '🏷️'
                 });
                 setNewCategoryName('');
+                setNewCategoryIcon('🏷️');
                 setNewCategoryTaxRate(0.08);
                 setIsAddModalOpen(false);
                 loadCategories();
@@ -987,6 +996,7 @@
                 e.stopPropagation();
                 setEditingCategory(cat);
                 setNewCategoryName(cat.name);
+                setNewCategoryIcon(cat.icon || '🏷️');
                 setNewCategoryTaxRate(cat.taxRate || 0.08);
                 setIsEditModalOpen(true);
             };
@@ -997,10 +1007,12 @@
 
                 await db.categories.update(editingCategory.id, {
                     name: newCategoryName,
-                    taxRate: newCategoryTaxRate
+                    taxRate: newCategoryTaxRate,
+                    icon: newCategoryIcon
                 });
 
                 setNewCategoryName('');
+                setNewCategoryIcon('🏷️');
                 setEditingCategory(null);
                 setNewCategoryTaxRate(0.08);
                 setIsEditModalOpen(false);
@@ -1086,8 +1098,8 @@
                         <div className="grid grid-cols-2 gap-3 mb-6">
                             {categories.map(cat => (
                                 <Card key={cat.id} onClick={() => onSelectCategory(cat)} className="aspect-[4/3] flex flex-col items-center justify-center gap-2 hover:bg-main-light/30 transition-colors border border-transparent hover:border-main-light relative group">
-                                    <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center text-main mb-1">
-                                        {cat.name.includes('食品') ? '🍎' : cat.name.includes('日用品') ? '🧻' : cat.name.includes('ベビー') ? '👶' : '🏷️'}
+                                    <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center text-2xl mb-1">
+                                        {cat.icon || '🏷️'}
                                     </div>
                                     <span className="font-bold text-text">{cat.name}</span>
                                     <div className="text-[10px] text-text-light bg-white/50 px-2 py-0.5 rounded-full">
@@ -1102,7 +1114,7 @@
                                     </button>
                                 </Card>
                             ))}
-                            <button onClick={() => { setNewCategoryName(''); setNewCategoryTaxRate(0.08); setIsAddModalOpen(true); }} className="aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-light hover:bg-white hover:text-main hover:border-main transition-colors">
+                            <button onClick={() => { setNewCategoryName(''); setNewCategoryIcon('🏷️'); setNewCategoryTaxRate(0.08); setIsAddModalOpen(true); }} className="aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-light hover:bg-white hover:text-main hover:border-main transition-colors">
                                 <IconPlus className="w-8 h-8" />
                                 <span className="text-xs font-bold">追加</span>
                             </button>
@@ -1112,13 +1124,26 @@
                     {/* Add Modal */}
                     <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="新しいジャンル">
                         <form onSubmit={handleAddCategory}>
-                            <Input
-                                label="ジャンル名"
-                                placeholder="例：ペット用品"
-                                value={newCategoryName}
-                                onChange={e => setNewCategoryName(e.target.value)}
-                                required
-                            />
+                            <div className="flex gap-3">
+                                <div className="w-24 shrink-0">
+                                    <Input
+                                        label="アイコン"
+                                        value={newCategoryIcon}
+                                        onChange={e => setNewCategoryIcon(e.target.value)}
+                                        className="text-center text-2xl"
+                                        placeholder="🏷️"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <Input
+                                        label="ジャンル名"
+                                        placeholder="例：ペット用品"
+                                        value={newCategoryName}
+                                        onChange={e => setNewCategoryName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                            </div>
                             <TaxRateInput />
                             <div className="mt-6">
                                 <Button type="submit" className="w-full">追加する</Button>
@@ -1129,12 +1154,25 @@
                     {/* Edit Modal */}
                     <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="ジャンルを編集">
                         <form onSubmit={handleUpdateCategory}>
-                            <Input
-                                label="ジャンル名"
-                                value={newCategoryName}
-                                onChange={e => setNewCategoryName(e.target.value)}
-                                required
-                            />
+                            <div className="flex gap-3">
+                                <div className="w-24 shrink-0">
+                                    <Input
+                                        label="アイコン"
+                                        value={newCategoryIcon}
+                                        onChange={e => setNewCategoryIcon(e.target.value)}
+                                        className="text-center text-2xl"
+                                        placeholder="🏷️"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <Input
+                                        label="ジャンル名"
+                                        value={newCategoryName}
+                                        onChange={e => setNewCategoryName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                            </div>
                             <TaxRateInput />
                             <div className="mt-6 space-y-3">
                                 <Button type="submit" className="w-full">更新する</Button>
@@ -1224,6 +1262,7 @@
 
         // --- App Layout ---
         const App = () => {
+            const [isReady, setIsReady] = useState(false);
             const [view, setView] = useState('home'); // home, items, history
             const [selectedCategory, setSelectedCategory] = useState(null);
             const [selectedItem, setSelectedItem] = useState(null);
@@ -1238,8 +1277,17 @@
                 initData().then(async () => {
                     const mode = await db.settings.get('priceDisplayMode');
                     if (mode) setDisplayMode(mode.value);
+                    setIsReady(true);
                 });
             }, []);
+
+            if (!isReady) {
+                return (
+                    <div className="flex items-center justify-center h-screen bg-base text-main">
+                        <div className="animate-pulse font-bold">Loading...</div>
+                    </div>
+                );
+            }
 
             const handleUpdateMode = async (mode) => {
                 await db.settings.put({ key: 'priceDisplayMode', value: mode });
