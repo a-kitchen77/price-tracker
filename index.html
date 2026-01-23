@@ -118,6 +118,9 @@
         const IconUpload = ({ className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17,8 12,3 7,8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>
         );
+        const IconStar = ({ className, filled }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+        );
 
 
         // ==========================================
@@ -144,6 +147,14 @@
         db.version(3).stores({
             categories: '++id, &name, taxRate',
             items: '++id, name, categoryId',
+            prices: '++id, itemId, shop, price, amount, unitPrice, inputType, unitPriceInTax, date, memo',
+            settings: 'key, value'
+        });
+
+        // Version 4: Add favorite field to items
+        db.version(4).stores({
+            categories: '++id, &name, taxRate',
+            items: '++id, name, categoryId, favorite',
             prices: '++id, itemId, shop, price, amount, unitPrice, inputType, unitPriceInTax, date, memo',
             settings: 'key, value'
         });
@@ -697,14 +708,13 @@
                     }
                 }
 
-                // Sort items by latest update date (newest first)
+                // Sort items: favorites first, then alphabetically (あいうえお順)
                 result.sort((a, b) => {
-                    const dateA = latestDateMap[a.id];
-                    const dateB = latestDateMap[b.id];
-                    if (!dateA && !dateB) return 0;
-                    if (!dateA) return 1;
-                    if (!dateB) return -1;
-                    return dateB - dateA; // Newest first
+                    // Favorites come first
+                    if (a.favorite && !b.favorite) return -1;
+                    if (!a.favorite && b.favorite) return 1;
+                    // Then alphabetically
+                    return a.name.localeCompare(b.name, 'ja');
                 });
 
                 setItems(result);
@@ -736,6 +746,12 @@
                     loadItems();
                 }
             }
+
+            const handleToggleFavorite = async (e, item) => {
+                e.stopPropagation();
+                await db.items.update(item.id, { favorite: !item.favorite });
+                loadItems();
+            };
 
             return (
                 <div className="flex flex-col h-full">
@@ -787,6 +803,9 @@
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-1 shrink-0 mt-1">
+                                                <button onClick={(e) => handleToggleFavorite(e, item)} className={`p-1.5 transition-colors ${item.favorite ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'}`}>
+                                                    <IconStar className="w-5 h-5" filled={item.favorite} />
+                                                </button>
                                                 <div className="w-6 h-6 rounded-full bg-main-light flex items-center justify-center text-main">
                                                     <IconChevronLeft className="rotate-180 w-4 h-4" />
                                                 </div>
