@@ -1407,7 +1407,8 @@
         // --- App Layout ---
         const App = () => {
             const [isReady, setIsReady] = useState(false);
-            const [view, setView] = useState('home'); // home, items, history
+            const [view, setView] = useState('home'); // home, items, history, search, shopping
+            const [previousView, setPreviousView] = useState(null); // 戻り先を記憶
             const [selectedCategory, setSelectedCategory] = useState(null);
             const [selectedItem, setSelectedItem] = useState(null);
             const [displayMode, setDisplayMode] = useState('tax_excluded'); // tax_excluded or tax_included
@@ -1440,11 +1441,13 @@
 
             const goToItems = (category) => {
                 setSelectedCategory(category);
+                setPreviousView('home');
                 setView('items');
             };
 
             const goToHistory = (item) => {
                 setSelectedItem(item);
+                setPreviousView('items');
                 setView('history');
             };
 
@@ -1457,7 +1460,12 @@
             };
 
             const goBack = () => {
-                if (view === 'history') setView('items'); // Simplified back nav
+                if (view === 'history') {
+                    // 遷移元に戻る（買い物リストから来た場合は買い物リストへ、検索から来た場合は検索へ）
+                    if (previousView === 'shopping') setView('shopping');
+                    else if (previousView === 'search') setView('search');
+                    else setView('items');
+                }
                 else if (view === 'items') setView('home');
                 else if (view === 'search') setView('home');
                 else if (view === 'shopping') setView('home');
@@ -1465,6 +1473,13 @@
 
             const handleSearchSelect = (item) => {
                 setSelectedItem(item);
+                setPreviousView('search');
+                setView('history');
+            };
+
+            const handleShoppingSelect = (item) => {
+                setSelectedItem(item);
+                setPreviousView('shopping');
                 setView('history');
             };
 
@@ -1507,7 +1522,7 @@
                         {view === 'shopping' && (
                             <ShoppingList
                                 onBack={goBack}
-                                onSelectItem={handleSearchSelect}
+                                onSelectItem={handleShoppingSelect}
                                 displayMode={displayMode}
                             />
                         )}
